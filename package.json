@@ -1,0 +1,24 @@
+{
+  "name": "prompt-shortcuts-ai",
+  "version": "1.0.0",
+  "description": "PromptShortcuts AI — turn prompts into shortcuts in AI chats.",
+  "main": "index.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && node scripts/bundle-content.mjs",
+    "preview": "vite preview"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "devDependencies": {
+    "esbuild": "^0.25.9",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.3"
+  },
+  "dependencies": {
+    "lit": "^3.3.1",
+    "webextension-polyfill": "^0.12.0"
+  }
+}

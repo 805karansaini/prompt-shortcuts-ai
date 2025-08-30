@@ -1,0 +1,56 @@
+{
+  "manifest_version": 3,
+  "name": "PromptShortcuts AI",
+  "version": "1.0.0",
+  "description": "PromptShortcuts AI: Type !alias in AI chats to expand saved snippets.",
+  "permissions": [
+    "storage",
+    "commands"
+  ],
+  "host_permissions": [
+    "https://chatgpt.com/*",
+    "https://claude.ai/*",
+    "https://gemini.google.com/*",
+    "https://t3.chat/*",
+    "https://qwen.ai/*",
+    "https://chat.qwen.ai/*",
+    "https://deepseek.com/*",
+    "https://chat.aifiesta.ai/*",
+    "https://chat.deepseek.com/*"
+  ],
+  "background": {
+    "service_worker": "background/index.js",
+    "type": "module"
+  },
+  "commands": {
+    "toggle-manager": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+S"
+      },
+      "description": "Toggle Shortcuts Manager"
+    }
+  },
+  "options_ui": {
+    "page": "src/options/index.html",
+    "open_in_tab": true
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://claude.ai/*",
+        "https://gemini.google.com/*",
+        "https://t3.chat/*",
+        "https://qwen.ai/*",
+        "https://chat.qwen.ai/*",
+        "https://deepseek.com/*",
+        "https://chat.aifiesta.ai/*",
+        "https://chat.deepseek.com/*"
+      ],
+      "js": [
+        "content/index.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
