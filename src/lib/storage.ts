@@ -2,7 +2,8 @@ import browser from 'webextension-polyfill';
 import type { Shortcut, Settings, StorageShape } from './types';
 
 const DEFAULT_SETTINGS: Settings = {
-  toggleShortcut: 'CmdOrCtrl+Shift+S',
+  // Display-only hint; actual binding is defined in manifest.json commands
+  toggleShortcut: 'Command+Shift+K (macOS) / Ctrl+Shift+K (Win/Linux)',
   perSiteOverlayPos: {},
   onboardingNudgeDismissed: false,
 };

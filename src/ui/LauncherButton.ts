@@ -1,5 +1,4 @@
 import { getSettings, setSettings } from '../lib/storage';
-import browser from 'webextension-polyfill';
 
 export class PSLauncherButton {
   private root: ShadowRoot | null = null;
@@ -23,6 +22,8 @@ export class PSLauncherButton {
   private holdTimer: number | null = null;
   private readonly holdDelay = 140; // ms long-press to force drag
   private justDraggedUntil = 0;
+  private vx = 0;
+  private vy = 0;
 
   async mount() {
     if (this.host) return;
@@ -38,7 +39,15 @@ export class PSLauncherButton {
 
     const shadow = container.attachShadow({ mode: 'open' });
     const style = document.createElement('style');
+    const getURL = ((globalThis as any)?.chrome?.runtime?.getURL ?? (globalThis as any)?.browser?.runtime?.getURL) as
+      | undefined
+      | ((path: string) => string);
+    const interUrl = typeof getURL === 'function' ? getURL('fonts/InterVariable.woff2') : '';
+    const fontPrelude = interUrl
+      ? `@font-face{font-family:"Inter var";font-style:normal;font-weight:100 900;font-display:swap;src:url("${interUrl}") format("woff2");}`
+      : `@import url('https://rsms.me/inter/inter.css');`;
     style.textContent = `
+      ${fontPrelude}
       :host { all: initial; }
       .wrap { pointer-events: auto; touch-action: none; user-select: none; -webkit-user-select: none; }
       .wrap[data-dragging="1"] button { cursor: grabbing; filter: brightness(1.05); }
@@ -49,7 +58,7 @@ export class PSLauncherButton {
         background: radial-gradient(120% 120% at 0% 0%, #6a11cb 0%, #2575fc 50%, #00c2ff 100%);
         color: #fff; display: grid; place-items: center;
         box-shadow: 0 4px 14px rgba(37,117,252,0.35);
-        font-weight: 800; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+        font-weight: 800; font-family: "Inter var", Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
         cursor: grab; touch-action: none; -webkit-tap-highlight-color: transparent;
         transition: transform 0.12s ease, box-shadow 0.2s ease, filter 0.2s ease;
         will-change: transform;
@@ -64,7 +73,6 @@ export class PSLauncherButton {
       button:hover::before { opacity: 0.5; }
       button:active { transform: translateY(0) scale(0.98); }
       .bang { font-size: 18px; line-height: 1; }
-      }
       @media (prefers-color-scheme: light) { button { filter: saturate(1.05) brightness(1.02); } }
     `;
     shadow.append(style);
@@ -76,6 +84,7 @@ export class PSLauncherButton {
     icon.textContent = '!';
     btn.append(icon);
     btn.title = 'PromptShortcuts AI — Open Manager';
+    btn.setAttribute('aria-label', 'Open Shortcuts Manager');
     wrap.append(btn);
     shadow.append(wrap);
 
@@ -89,9 +98,21 @@ export class PSLauncherButton {
     const settings = await getSettings();
     const pos = settings.perSiteOverlayPos?.[hostname];
     if (pos) {
-      container.style.top = `${pos.y}px`;
-      container.style.left = `${pos.x}px`;
+      // Clamp restored position to viewport in case it was dragged off-screen
+      const margin = 8;
+      const btnSize = 36 + 8; // size + a bit of breathing room
+      const maxLeft = Math.max(margin, window.innerWidth - btnSize);
+      const maxTop = Math.max(margin, window.innerHeight - btnSize);
+      const left = Math.min(Math.max(Math.round(pos.x), margin), maxLeft);
+      const top = Math.min(Math.max(Math.round(pos.y), margin), maxTop);
+      container.style.top = `${top}px`;
+      container.style.left = `${left}px`;
       container.style.right = 'auto';
+      // If clamped (adjusted), persist the corrected position to avoid future off-screen restores
+      if (left !== Math.round(pos.x) || top !== Math.round(pos.y)) {
+        settings.perSiteOverlayPos[hostname] = { x: left, y: top };
+        await setSettings(settings);
+      }
     }
 
     // Drag (with threshold + long-press + smooth RAF positioning)
@@ -170,15 +191,11 @@ export class PSLauncherButton {
     });
     wrap.addEventListener('pointercancel', () => this.cancelDrag(container, wrap));
 
-    // Toggle manager
+    // Toggle manager (dispatch an intra-page custom event)
     btn.addEventListener('click', () => {
       // Ignore clicks that immediately follow a drag
       if (performance.now() < this.justDraggedUntil) return;
-      // Prefer messaging via background to avoid timing issues
-      browser.runtime.sendMessage({ type: 'ps:toggle-manager' }).catch(() => {
-        // Fallback: intra-page custom event
-        try { window.dispatchEvent(new CustomEvent('ps:toggle-manager')); } catch {}
-      });
+      try { window.dispatchEvent(new CustomEvent('ps:toggle-manager')); } catch {}
     });
   }
 
@@ -186,20 +203,13 @@ export class PSLauncherButton {
     if (this.raf) return;
     const step = () => {
       // Spring smoothing: velocity + damping
-      const k = 0.20; // spring
-      const d = 0.75; // damping
-      // Reuse currentLeft/Top as position; store velocities on instance via closure
-      // @ts-ignore - attach temp fields
-      this.vx = (this.vx || 0) + (this.desiredLeft - this.currentLeft) * k;
-      // @ts-ignore
-      this.vx *= d;
-      // @ts-ignore
-      this.vy = (this.vy || 0) + (this.desiredTop - this.currentTop) * k;
-      // @ts-ignore
-      this.vy *= d;
-      // @ts-ignore
+      const springConstant = 0.20; // spring
+      const dampingFactor = 0.75; // damping
+      this.vx += (this.desiredLeft - this.currentLeft) * springConstant;
+      this.vx *= dampingFactor;
+      this.vy += (this.desiredTop - this.currentTop) * springConstant;
+      this.vy *= dampingFactor;
       this.currentLeft += this.vx;
-      // @ts-ignore
       this.currentTop += this.vy;
       const tx = Math.round(this.currentLeft - this.originLeft);
       const ty = Math.round(this.currentTop - this.originTop);
@@ -209,10 +219,8 @@ export class PSLauncherButton {
       } else {
         this.raf = 0;
         // Reset velocities
-        // @ts-ignore
-        this.vx = 0; // eslint-disable-line
-        // @ts-ignore
-        this.vy = 0; // eslint-disable-line
+        this.vx = 0;
+        this.vy = 0;
       }
     };
     this.raf = requestAnimationFrame(step);

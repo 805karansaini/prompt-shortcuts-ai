@@ -25,7 +25,11 @@
   "commands": {
     "toggle-manager": {
       "suggested_key": {
-        "default": "Ctrl+Shift+S"
+        "default": "Ctrl+Shift+K",
+        "mac": "Command+Shift+K",
+        "windows": "Ctrl+Shift+K",
+        "linux": "Ctrl+Shift+K",
+        "chromeos": "Ctrl+Shift+K"
       },
       "description": "Toggle Shortcuts Manager"
     }
@@ -34,6 +38,22 @@
     "page": "src/options/index.html",
     "open_in_tab": true
   },
+  "web_accessible_resources": [
+    {
+      "resources": ["fonts/*"],
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://claude.ai/*",
+        "https://gemini.google.com/*",
+        "https://t3.chat/*",
+        "https://qwen.ai/*",
+        "https://chat.qwen.ai/*",
+        "https://deepseek.com/*",
+        "https://chat.aifiesta.ai/*",
+        "https://chat.deepseek.com/*"
+      ]
+    }
+  ],
   "content_scripts": [
     {
       "matches": [
