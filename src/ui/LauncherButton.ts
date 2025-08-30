@@ -19,6 +19,10 @@ export class PSLauncherButton {
   private originLeft = 0;
   private originTop = 0;
   private raf = 0;
+  private downAt = 0;
+  private holdTimer: number | null = null;
+  private readonly holdDelay = 140; // ms long-press to force drag
+  private justDraggedUntil = 0;
 
   async mount() {
     if (this.host) return;
@@ -36,7 +40,7 @@ export class PSLauncherButton {
     const style = document.createElement('style');
     style.textContent = `
       :host { all: initial; }
-      .wrap { pointer-events: auto; }
+      .wrap { pointer-events: auto; touch-action: none; user-select: none; -webkit-user-select: none; }
       .wrap[data-dragging="1"] button { cursor: grabbing; filter: brightness(1.05); }
       button {
         all: unset;
@@ -46,7 +50,7 @@ export class PSLauncherButton {
         color: #fff; display: grid; place-items: center;
         box-shadow: 0 4px 14px rgba(37,117,252,0.35);
         font-weight: 800; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
-        cursor: pointer;
+        cursor: grab; touch-action: none; -webkit-tap-highlight-color: transparent;
         transition: transform 0.12s ease, box-shadow 0.2s ease, filter 0.2s ease;
         will-change: transform;
       }
@@ -90,15 +94,16 @@ export class PSLauncherButton {
       container.style.right = 'auto';
     }
 
-    // Drag (with threshold + smooth RAF positioning)
+    // Drag (with threshold + long-press + smooth RAF positioning)
     wrap.addEventListener('pointerdown', (ev) => {
       // Only start tracking on primary pointer
       if (this.activePointerId !== null) return;
+      if (ev.button !== 0 && ev.button !== -1) return; // left/touch only
       this.activePointerId = ev.pointerId;
       const rect = container.getBoundingClientRect();
-      // Convert any right-based position to explicit left/top for dragging
-      this.originLeft = Math.round(window.scrollX + rect.left);
-      this.originTop = Math.round(window.scrollY + rect.top);
+      // Convert any right-based position to explicit left/top for dragging (viewport units for fixed position)
+      this.originLeft = Math.round(rect.left);
+      this.originTop = Math.round(rect.top);
       container.style.left = `${this.originLeft}px`;
       container.style.top = `${this.originTop}px`;
       container.style.right = 'auto';
@@ -107,23 +112,23 @@ export class PSLauncherButton {
       this.offsetY = ev.clientY - rect.top;
       this.startX = ev.clientX;
       this.startY = ev.clientY;
+      this.downAt = performance.now();
       this.dragging = false; // will become true after threshold
+      // Long-press fallback to initiate drag even without movement
+      this.clearHoldTimer();
+      this.holdTimer = window.setTimeout(() => {
+        if (this.activePointerId !== ev.pointerId || this.dragging) return;
+        this.beginDrag(ev, container, wrap);
+      }, this.holdDelay);
     });
     wrap.addEventListener('pointermove', (ev) => {
       if (this.activePointerId !== ev.pointerId) return;
       const dx = ev.clientX - this.startX;
       const dy = ev.clientY - this.startY;
       if (!this.dragging) {
-        if (Math.hypot(dx, dy) >= this.dragThreshold) {
-          this.dragging = true;
-          try { wrap.setPointerCapture(ev.pointerId); } catch {}
-          wrap.setAttribute('data-dragging', '1');
-          // Initialize smooth loop
-          this.currentLeft = this.originLeft;
-          this.currentTop = this.originTop;
-          this.desiredLeft = this.originLeft;
-          this.desiredTop = this.originTop;
-          this.startSmoothLoop(container, wrap);
+        const held = performance.now() - this.downAt;
+        if (Math.hypot(dx, dy) >= this.dragThreshold || held >= this.holdDelay) {
+          this.beginDrag(ev, container, wrap);
         } else {
           return;
         }
@@ -131,8 +136,8 @@ export class PSLauncherButton {
       // Update desired position (will be applied in RAF loop)
       const x = Math.max(8, Math.min(window.innerWidth - 44, ev.clientX - this.offsetX));
       const y = Math.max(8, Math.min(window.innerHeight - 44, ev.clientY - this.offsetY));
-      this.desiredLeft = Math.round(window.scrollX + x);
-      this.desiredTop = Math.round(window.scrollY + y);
+      this.desiredLeft = Math.round(x);
+      this.desiredTop = Math.round(y);
     });
     wrap.addEventListener('pointerup', async (ev) => {
       if (this.activePointerId !== ev.pointerId) return;
@@ -141,6 +146,7 @@ export class PSLauncherButton {
       try { wrap.releasePointerCapture(ev.pointerId); } catch {}
       this.activePointerId = null;
       wrap.removeAttribute('data-dragging');
+      this.clearHoldTimer();
       // Commit final position
       if (this.raf) {
         cancelAnimationFrame(this.raf);
@@ -151,6 +157,7 @@ export class PSLauncherButton {
         container.style.left = `${this.desiredLeft}px`;
         container.style.top = `${this.desiredTop}px`;
         container.style.right = 'auto';
+        this.justDraggedUntil = performance.now() + 250;
       }
       if (!wasDragging) {
         // Let the native click on the button fire
@@ -161,9 +168,12 @@ export class PSLauncherButton {
       settings.perSiteOverlayPos[location.hostname] = { x: rect.left, y: rect.top };
       await setSettings(settings);
     });
+    wrap.addEventListener('pointercancel', () => this.cancelDrag(container, wrap));
 
     // Toggle manager
     btn.addEventListener('click', () => {
+      // Ignore clicks that immediately follow a drag
+      if (performance.now() < this.justDraggedUntil) return;
       // Prefer messaging via background to avoid timing issues
       browser.runtime.sendMessage({ type: 'ps:toggle-manager' }).catch(() => {
         // Fallback: intra-page custom event
@@ -175,10 +185,22 @@ export class PSLauncherButton {
   private startSmoothLoop(container: HTMLDivElement, wrap: HTMLDivElement) {
     if (this.raf) return;
     const step = () => {
-      // Smoothly approach desired position
-      const k = 0.25; // smoothing factor
-      this.currentLeft += (this.desiredLeft - this.currentLeft) * k;
-      this.currentTop += (this.desiredTop - this.currentTop) * k;
+      // Spring smoothing: velocity + damping
+      const k = 0.20; // spring
+      const d = 0.75; // damping
+      // Reuse currentLeft/Top as position; store velocities on instance via closure
+      // @ts-ignore - attach temp fields
+      this.vx = (this.vx || 0) + (this.desiredLeft - this.currentLeft) * k;
+      // @ts-ignore
+      this.vx *= d;
+      // @ts-ignore
+      this.vy = (this.vy || 0) + (this.desiredTop - this.currentTop) * k;
+      // @ts-ignore
+      this.vy *= d;
+      // @ts-ignore
+      this.currentLeft += this.vx;
+      // @ts-ignore
+      this.currentTop += this.vy;
       const tx = Math.round(this.currentLeft - this.originLeft);
       const ty = Math.round(this.currentTop - this.originTop);
       container.style.transform = `translate3d(${tx}px, ${ty}px, 0)`;
@@ -186,8 +208,42 @@ export class PSLauncherButton {
         this.raf = requestAnimationFrame(step);
       } else {
         this.raf = 0;
+        // Reset velocities
+        // @ts-ignore
+        this.vx = 0; // eslint-disable-line
+        // @ts-ignore
+        this.vy = 0; // eslint-disable-line
       }
     };
     this.raf = requestAnimationFrame(step);
+  }
+
+  private beginDrag(ev: PointerEvent, container: HTMLDivElement, wrap: HTMLDivElement) {
+    if (this.dragging) return;
+    this.dragging = true;
+    try { wrap.setPointerCapture(ev.pointerId); } catch {}
+    wrap.setAttribute('data-dragging', '1');
+    // Initialize smooth loop from current position
+    this.currentLeft = this.originLeft;
+    this.currentTop = this.originTop;
+    this.desiredLeft = this.originLeft;
+    this.desiredTop = this.originTop;
+    this.startSmoothLoop(container, wrap);
+  }
+
+  private cancelDrag(container: HTMLDivElement, wrap: HTMLDivElement) {
+    this.dragging = false;
+    this.activePointerId = null;
+    wrap.removeAttribute('data-dragging');
+    this.clearHoldTimer();
+    if (this.raf) { cancelAnimationFrame(this.raf); this.raf = 0; }
+    container.style.transform = '';
+  }
+
+  private clearHoldTimer() {
+    if (this.holdTimer !== null) {
+      clearTimeout(this.holdTimer);
+      this.holdTimer = null;
+    }
   }
 }
