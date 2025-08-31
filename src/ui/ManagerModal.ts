@@ -1,4 +1,5 @@
 import { getShortcuts, setShortcuts, cryptoRandomId } from '../lib/storage';
+import { filterAndSortShortcuts } from '../lib/fuzzy';
 import type { Shortcut } from '../lib/types';
 
 export class PSManagerModal {
@@ -149,7 +150,7 @@ export class PSManagerModal {
         <div class="header">
           <div class="title">PromptShortcuts AI</div>
           <div class="actions">
-            <input id="ps-search" placeholder="Search shortcuts" aria-label="Search shortcuts" style="width: 220px;"/>
+            <input id="ps-search" placeholder="Search shortcuts (fuzzy)" aria-label="Search shortcuts" style="width: 220px;"/>
             <button id="ps-close" class="btn-ghost" aria-label="Close"><span class="kbd">Esc</span></button>
           </div>
         </div>
@@ -197,7 +198,7 @@ export class PSManagerModal {
     // Search filter
     if (search) {
       search.addEventListener('input', () => {
-        this.filterQuery = search.value.toLowerCase();
+        this.filterQuery = search.value;
         this.renderList(list);
       });
     }
@@ -243,10 +244,8 @@ export class PSManagerModal {
 
   private renderList(listEl: HTMLDivElement) {
     listEl.innerHTML = '';
-    const q = this.filterQuery.trim().toLowerCase();
-    const items = q
-      ? this.shortcuts.filter((s) => s.alias.toLowerCase().includes(q) || s.text.toLowerCase().includes(q))
-      : this.shortcuts;
+    const q = this.filterQuery.trim();
+    const items = q ? filterAndSortShortcuts(this.shortcuts, q) : this.shortcuts;
 
     if (items.length === 0) {
       const empty = document.createElement('div');
@@ -326,7 +325,7 @@ export class PSManagerModal {
     });
     this.open = true;
     const aliasInput = this.root.getElementById('ps-alias') as HTMLInputElement;
-    try { aliasInput?.focus(); } catch {}
+    try { aliasInput?.focus(); } catch { }
   }
 
   hide() {
@@ -345,7 +344,7 @@ export class PSManagerModal {
     setTimeout(after, 220);
     this.open = false;
     if (this.lastFocus instanceof HTMLElement) {
-      try { this.lastFocus.focus(); } catch {}
+      try { this.lastFocus.focus(); } catch { }
     }
   }
 
