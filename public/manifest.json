@@ -16,7 +16,8 @@
     "https://chat.qwen.ai/*",
     "https://deepseek.com/*",
     "https://chat.aifiesta.ai/*",
-    "https://chat.deepseek.com/*"
+    "https://chat.deepseek.com/*",
+    "https://notebooklm.google.com/*"
   ],
   "background": {
     "service_worker": "background/index.js",
@@ -40,7 +41,9 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["fonts/*"],
+      "resources": [
+        "fonts/*"
+      ],
       "matches": [
         "https://chatgpt.com/*",
         "https://claude.ai/*",
@@ -50,7 +53,8 @@
         "https://chat.qwen.ai/*",
         "https://deepseek.com/*",
         "https://chat.aifiesta.ai/*",
-        "https://chat.deepseek.com/*"
+        "https://chat.deepseek.com/*",
+        "https://notebooklm.google.com/*"
       ]
     }
   ],
@@ -65,7 +69,8 @@
         "https://chat.qwen.ai/*",
         "https://deepseek.com/*",
         "https://chat.aifiesta.ai/*",
-        "https://chat.deepseek.com/*"
+        "https://chat.deepseek.com/*",
+        "https://notebooklm.google.com/*"
       ],
       "js": [
         "content/index.js"
